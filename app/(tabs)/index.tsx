@@ -15,9 +15,9 @@ import {
 } from "react-native";
 import { AnimatedCircularProgress } from "react-native-circular-progress";
 import FontAwesome6 from "@expo/vector-icons/FontAwesome6";
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import styles from '../styles/styles';
-import { useRouter } from 'expo-router';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import styles from "../styles/styles";
+import { useRouter } from "expo-router";
 
 type StressData = number[];
 type StressLevel = "High" | "Moderate" | "Normal";
@@ -55,13 +55,15 @@ interface SensorData {
   hrv: number;
 }
 
-const UserInputScreen: React.FC<{ onStart: (userData: UserData) => void }> = ({ onStart }) => {
-  const [name, setName] = useState('');
-  const [age, setAge] = useState('');
+const UserInputScreen: React.FC<{ onStart: (userData: UserData) => void }> = ({
+  onStart,
+}) => {
+  const [name, setName] = useState("");
+  const [age, setAge] = useState("");
 
   const handleStart = () => {
     if (!name.trim() || !age.trim()) {
-      Alert.alert('Error', 'Please enter both name and age');
+      Alert.alert("Error", "Please enter both name and age");
       return;
     }
     onStart({ name, age });
@@ -129,11 +131,19 @@ const App: React.FC = () => {
   const [tempAnimation] = useState(new Animated.Value(36.5));
   const [hrvAnimation] = useState(new Animated.Value(50));
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
-  const [monitoringInterval, setMonitoringInterval] = useState<number | null>(null);
+  const [monitoringInterval, setMonitoringInterval] = useState<number | null>(
+    null
+  );
   const [showAnalysis, setShowAnalysis] = useState<boolean>(false);
   const [showIPInput, setShowIPInput] = useState<boolean>(false);
   const [esp32IP, setEsp32IP] = useState<string>("");
-  const [sensorData, setSensorData] = useState<SensorData>({ gsr: 0, temp: 36.5, hrv: 50 });
+  const [ipAddress, setIpAddress] = useState("");
+
+  const [sensorData, setSensorData] = useState<SensorData>({
+    gsr: 0,
+    temp: 36.5,
+    hrv: 50,
+  });
   const router = useRouter();
 
   useEffect(() => {
@@ -142,18 +152,18 @@ const App: React.FC = () => {
 
   const loadHistory = async () => {
     try {
-      const storedHistory = await AsyncStorage.getItem('stressHistory');
+      const storedHistory = await AsyncStorage.getItem("stressHistory");
       if (storedHistory) {
         setHistory(JSON.parse(storedHistory));
       }
     } catch (error) {
-      console.error('Error loading history:', error);
+      console.error("Error loading history:", error);
     }
   };
 
   const saveToHistory = async (stressLevel: number) => {
     if (!userData) return;
-    
+
     const newEntry: HistoryEntry = {
       name: userData.name,
       timestamp: new Date().toLocaleString(),
@@ -164,9 +174,12 @@ const App: React.FC = () => {
     setHistory(updatedHistory);
 
     try {
-      await AsyncStorage.setItem('stressHistory', JSON.stringify(updatedHistory));
+      await AsyncStorage.setItem(
+        "stressHistory",
+        JSON.stringify(updatedHistory)
+      );
     } catch (error) {
-      console.error('Error saving history:', error);
+      console.error("Error saving history:", error);
     }
   };
 
@@ -179,52 +192,56 @@ const App: React.FC = () => {
   const connectToESP32 = async (ip: string) => {
     try {
       console.log(`Attempting to connect to ESP32 at IP: ${ip}`);
-      
+
       // First try to connect to the root endpoint
       const rootResponse = await fetch(`http://${ip}/`, {
-        method: 'GET',
+        method: "GET",
         headers: {
-          'Accept': 'text/plain',
+          Accept: "text/plain",
         },
       });
-      
+
       if (!rootResponse.ok) {
-        throw new Error(`Root endpoint failed with status: ${rootResponse.status}`);
+        throw new Error(
+          `Root endpoint failed with status: ${rootResponse.status}`
+        );
       }
-      
+
       const rootText = await rootResponse.text();
-      console.log('Root endpoint response:', rootText);
-      
+      console.log("Root endpoint response:", rootText);
+
       // Then try to connect to the data endpoint
       const dataResponse = await fetch(`http://${ip}/data`, {
-        method: 'GET',
+        method: "GET",
         headers: {
-          'Accept': 'application/json',
+          Accept: "application/json",
         },
       });
-      
+
       if (!dataResponse.ok) {
-        throw new Error(`Data endpoint failed with status: ${dataResponse.status}`);
+        throw new Error(
+          `Data endpoint failed with status: ${dataResponse.status}`
+        );
       }
-      
+
       const data = await dataResponse.json();
-      console.log('Data endpoint response:', data);
-      
+      console.log("Data endpoint response:", data);
+
       setEsp32IP(ip);
       setIsConnected(true);
       setShowIPInput(false);
       Alert.alert("Success", "Connected to ESP32 successfully!");
     } catch (error: any) {
       console.error("Connection error details:", error);
-      const errorMessage = error?.message || 'Unknown error occurred';
+      const errorMessage = error?.message || "Unknown error occurred";
       Alert.alert(
         "Connection Error",
         `Failed to connect to ESP32. Please check:\n\n` +
-        `1. ESP32 is powered on\n` +
-        `2. IP address is correct\n` +
-        `3. Both devices are on the same network\n` +
-        `4. ESP32 is running the server\n\n` +
-        `Error: ${errorMessage}`
+          `1. ESP32 is powered on\n` +
+          `2. IP address is correct\n` +
+          `3. Both devices are on the same network\n` +
+          `4. ESP32 is running the server\n\n` +
+          `Error: ${errorMessage}`
       );
       setIsConnected(false);
     }
@@ -235,39 +252,44 @@ const App: React.FC = () => {
     try {
       console.log(`Fetching data from ESP32 at IP: ${esp32IP}`);
       const response = await fetch(`http://${esp32IP}/data`, {
-        method: 'GET',
+        method: "GET",
         headers: {
-          'Accept': 'application/json',
+          Accept: "application/json",
         },
       });
-      
+
       if (!response.ok) {
         throw new Error(`Failed to fetch data: ${response.status}`);
       }
-      
+
       const data: SensorData = await response.json();
-      console.log('Received sensor data:', data);
-      
-      if (!data || typeof data.gsr !== 'number' || typeof data.temp !== 'number' || typeof data.hrv !== 'number') {
-        throw new Error('Invalid sensor data format');
+      console.log("Received sensor data:", data);
+
+      if (
+        !data ||
+        typeof data.gsr !== "number" ||
+        typeof data.temp !== "number" ||
+        typeof data.hrv !== "number"
+      ) {
+        throw new Error("Invalid sensor data format");
       }
-      
+
       setSensorData(data);
-      
+
       // Calculate stress level based on sensor data
       const stressValue = calculateStress(data);
       setCurrentStress(stressValue);
       setBodyTemperature(data.temp);
       setHrvValue(data.hrv);
-      
+
       // Update stress level classification
       if (stressValue > 70) setStressLevel("High");
       else if (stressValue > 40) setStressLevel("Moderate");
       else setStressLevel("Normal");
-      
+
       // Save to history
       saveToHistory(stressValue);
-      
+
       // Animate the progress
       Animated.parallel([
         Animated.timing(progressAnimation, {
@@ -289,7 +311,6 @@ const App: React.FC = () => {
           useNativeDriver: false,
         }),
       ]).start();
-      
     } catch (error) {
       console.error("Error fetching sensor data:", error);
       Alert.alert("Error", "Failed to fetch data from ESP32");
@@ -311,18 +332,19 @@ const App: React.FC = () => {
   const calculateStress = (data: SensorData): number => {
     // Normalize GSR (0-1023) to 0-100
     const normalizedGSR = (data.gsr / 1023) * 100;
-    
+
     // Normalize HRV (0-100ms) to 0-100 for stress calculation
     const normalizedHRV = getHrvStressPercentage(data.hrv);
-    
+
     // Temperature contribution (36-38°C range)
     const tempContribution = Math.abs(data.temp - 37) * 20; // 20 points per degree from normal
-    
+
     // Calculate final stress value (0-100) with new weights
-    const stressValue = (normalizedGSR * 0.2) +    // GSR: 20% weight
-                       ((100 - normalizedHRV) * 0.5) + // HRV: 50% weight (inverted)
-                       (tempContribution * 0.3);    // Temperature: 30% weight
-    
+    const stressValue =
+      normalizedGSR * 0.2 + // GSR: 20% weight
+      (100 - normalizedHRV) * 0.5 + // HRV: 50% weight (inverted)
+      tempContribution * 0.3; // Temperature: 30% weight
+
     return Math.min(100, Math.max(0, stressValue));
   };
 
@@ -360,7 +382,7 @@ const App: React.FC = () => {
     setShowIPInput(true);
   };
   const openRelaxationHub = () => {
-    router.push('/RelaxationHub');
+    router.push("/RelaxationHub");
   };
 
   const getStressColor = (value: number): string => {
@@ -439,114 +461,129 @@ const App: React.FC = () => {
   };
 
   const getAnalysis = (): AnalysisData | null => {
-    if (selectedMetric === 'stress') {
+    if (selectedMetric === "stress") {
       const metrics: MetricAnalysis[] = [
         {
-          title: 'Stress Level',
+          title: "Stress Level",
           value: `${currentStress}%`,
           status: stressLevel,
           color: getStressColor(currentStress),
-          description: currentStress > 70 
-            ? "Your stress level is high. Consider taking a break and practicing relaxation techniques."
-            : currentStress > 40
-            ? "Your stress level is moderate. Try some deep breathing exercises."
-            : "Your stress level is normal. Keep up the good work!",
-          recommendations: currentStress > 40 
-            ? "• Practice deep breathing\n• Take a short walk\n• Listen to calming music\n• Try meditation\n• Progressive muscle relaxation\n• Guided imagery exercises\n• Yoga or gentle stretching\n• Mindful walking"
-            : "• Maintain your current routine\n• Regular exercise\n• Good sleep habits\n• Balanced diet\n• Social connections\n• Regular breaks\n• Hobby time\n• Nature exposure"
+          description:
+            currentStress > 70
+              ? "Your stress level is high. Consider taking a break and practicing relaxation techniques."
+              : currentStress > 40
+              ? "Your stress level is moderate. Try some deep breathing exercises."
+              : "Your stress level is normal. Keep up the good work!",
+          recommendations:
+            currentStress > 40
+              ? "• Practice deep breathing\n• Take a short walk\n• Listen to calming music\n• Try meditation\n• Progressive muscle relaxation\n• Guided imagery exercises\n• Yoga or gentle stretching\n• Mindful walking"
+              : "• Maintain your current routine\n• Regular exercise\n• Good sleep habits\n• Balanced diet\n• Social connections\n• Regular breaks\n• Hobby time\n• Nature exposure",
         },
         {
-          title: 'Body Temperature',
+          title: "Body Temperature",
           value: `${bodyTemperature.toFixed(1)}°C`,
-          status: bodyTemperature > 37.5 
-            ? "High"
-            : bodyTemperature < 36 
-            ? "Low" 
-            : "Normal",
-          color: bodyTemperature > 37.5 ? "#ff5252" : bodyTemperature < 36 ? "#ffa726" : "#4caf50",
-          description: bodyTemperature > 37.5
-            ? "Your body temperature is above normal range. Monitor for other symptoms."
-            : bodyTemperature < 36
-            ? "Your body temperature is below normal range. Try to warm up."
-            : "Your body temperature is within the normal range.",
-          recommendations: bodyTemperature > 37.5
-            ? "• Rest and hydrate\n• Monitor for other symptoms\n• Consult a doctor if persistent\n• Cool down exercises\n• Light stretching\n• Breathing exercises\n• Stay in shade\n• Wear light clothing"
-            : bodyTemperature < 36
-            ? "• Warm up gradually\n• Wear warm clothing\n• Have warm beverages\n• Gentle movement\n• Indoor exercises\n• Warm-up stretches\n• Layer clothing\n• Stay active"
-            : "• Maintain normal activities\n• Stay hydrated\n• Regular exercise\n• Balanced diet\n• Proper clothing\n• Regular breaks\n• Monitor temperature\n• Stay active"
+          status:
+            bodyTemperature > 37.5
+              ? "High"
+              : bodyTemperature < 36
+              ? "Low"
+              : "Normal",
+          color:
+            bodyTemperature > 37.5
+              ? "#ff5252"
+              : bodyTemperature < 36
+              ? "#ffa726"
+              : "#4caf50",
+          description:
+            bodyTemperature > 37.5
+              ? "Your body temperature is above normal range. Monitor for other symptoms."
+              : bodyTemperature < 36
+              ? "Your body temperature is below normal range. Try to warm up."
+              : "Your body temperature is within the normal range.",
+          recommendations:
+            bodyTemperature > 37.5
+              ? "• Rest and hydrate\n• Monitor for other symptoms\n• Consult a doctor if persistent\n• Cool down exercises\n• Light stretching\n• Breathing exercises\n• Stay in shade\n• Wear light clothing"
+              : bodyTemperature < 36
+              ? "• Warm up gradually\n• Wear warm clothing\n• Have warm beverages\n• Gentle movement\n• Indoor exercises\n• Warm-up stretches\n• Layer clothing\n• Stay active"
+              : "• Maintain normal activities\n• Stay hydrated\n• Regular exercise\n• Balanced diet\n• Proper clothing\n• Regular breaks\n• Monitor temperature\n• Stay active",
         },
         {
-          title: 'Heart Rate Variability',
-          value: hrvValue === 0 || hrvValue > 2000 ? "Waiting..." : `${hrvValue}ms`,
-          status: hrvValue === 0 || hrvValue > 2000 
-            ? "Waiting"
-            : hrvValue < 1000 
-            ? "Low"
-            : hrvValue > 2000 
-            ? "High" 
-            : "Normal",
+          title: "Heart Rate Variability",
+          value:
+            hrvValue === 0 || hrvValue > 2000 ? "Waiting..." : `${hrvValue}ms`,
+          status:
+            hrvValue === 0 || hrvValue > 2000
+              ? "Waiting"
+              : hrvValue < 1000
+              ? "Low"
+              : hrvValue > 2000
+              ? "High"
+              : "Normal",
           color: getHrvColor(hrvValue),
-          description: hrvValue === 0 || hrvValue > 2000
-            ? "Please wait while we measure your heart rate variability."
-            : hrvValue < 1000
-            ? "Your HRV is low, which might indicate stress or fatigue. Consider taking time to rest and recover."
-            : hrvValue > 2000
-            ? "Your HRV is high, indicating good cardiovascular fitness and stress resilience."
-            : "Your HRV is within a normal range, indicating good balance between stress and recovery.",
-          recommendations: hrvValue === 0 || hrvValue > 2000
-            ? "• Keep your finger on the sensor\n• Stay still during measurement\n• Breathe normally\n• Wait for stable reading"
-            : hrvValue < 1000
-            ? "• Prioritize rest and recovery\n• Practice stress management\n• Improve sleep quality\n• Consider reducing training intensity"
-            : hrvValue > 2000
-            ? "• Maintain current lifestyle habits\n• Continue balanced exercise routine\n• Keep up good sleep patterns"
-            : "• Maintain regular exercise\n• Practice stress management\n• Ensure adequate sleep"
-        }
+          description:
+            hrvValue === 0 || hrvValue > 2000
+              ? "Please wait while we measure your heart rate variability."
+              : hrvValue < 1000
+              ? "Your HRV is low, which might indicate stress or fatigue. Consider taking time to rest and recover."
+              : hrvValue > 2000
+              ? "Your HRV is high, indicating good cardiovascular fitness and stress resilience."
+              : "Your HRV is within a normal range, indicating good balance between stress and recovery.",
+          recommendations:
+            hrvValue === 0 || hrvValue > 2000
+              ? "• Keep your finger on the sensor\n• Stay still during measurement\n• Breathe normally\n• Wait for stable reading"
+              : hrvValue < 1000
+              ? "• Prioritize rest and recovery\n• Practice stress management\n• Improve sleep quality\n• Consider reducing training intensity"
+              : hrvValue > 2000
+              ? "• Maintain current lifestyle habits\n• Continue balanced exercise routine\n• Keep up good sleep patterns"
+              : "• Maintain regular exercise\n• Practice stress management\n• Ensure adequate sleep",
+        },
       ];
 
       return {
-        title: 'Comprehensive Health Analysis',
-        details: metrics
+        title: "Comprehensive Health Analysis",
+        details: metrics,
       };
     }
 
     switch (selectedMetric) {
-      case 'temperature':
+      case "temperature":
         return {
-          title: 'Body Temperature Analysis',
-          status: bodyTemperature > 37.5 
-            ? "High"
-            : bodyTemperature < 36 
-            ? "Low" 
-            : "Normal",
-          details: bodyTemperature > 37.5
-            ? "Your body temperature is above normal range. Monitor for other symptoms."
-            : bodyTemperature < 36
-            ? "Your body temperature is below normal range. Try to warm up."
-            : "Your body temperature is within the normal range.",
-          recommendation: bodyTemperature > 37.5
-            ? "• Rest and hydrate\n• Monitor for other symptoms\n• Consult a doctor if persistent"
-            : bodyTemperature < 36
-            ? "• Warm up gradually\n• Wear warm clothing\n• Have warm beverages"
-            : "• Maintain normal activities\n• Stay hydrated"
+          title: "Body Temperature Analysis",
+          status:
+            bodyTemperature > 37.5
+              ? "High"
+              : bodyTemperature < 36
+              ? "Low"
+              : "Normal",
+          details:
+            bodyTemperature > 37.5
+              ? "Your body temperature is above normal range. Monitor for other symptoms."
+              : bodyTemperature < 36
+              ? "Your body temperature is below normal range. Try to warm up."
+              : "Your body temperature is within the normal range.",
+          recommendation:
+            bodyTemperature > 37.5
+              ? "• Rest and hydrate\n• Monitor for other symptoms\n• Consult a doctor if persistent"
+              : bodyTemperature < 36
+              ? "• Warm up gradually\n• Wear warm clothing\n• Have warm beverages"
+              : "• Maintain normal activities\n• Stay hydrated",
         };
-      case 'hrv':
+      case "hrv":
         return {
-          title: 'Heart Rate Variability Analysis',
-          status: hrvValue < 1000 
-            ? "Low"
-            : hrvValue > 2000 
-            ? "High" 
-            : "Normal",
-          details: hrvValue < 1000
-            ? "Your HRV is low, which might indicate stress or fatigue. Consider taking time to rest and recover."
-            : hrvValue > 2000
-            ? "Your HRV is high, indicating good cardiovascular fitness and stress resilience."
-            : "Your HRV is within a normal range, indicating good balance between stress and recovery.",
-          recommendation: hrvValue < 1000
-            ? "• Prioritize rest and recovery\n• Practice stress management\n• Improve sleep quality\n• Consider reducing training intensity"
-            : hrvValue > 2000
-            ? "• Maintain current lifestyle habits\n• Continue balanced exercise routine\n• Keep up good sleep patterns"
-            : "• Maintain regular exercise\n• Practice stress management\n• Ensure adequate sleep"
+          title: "Heart Rate Variability Analysis",
+          status: hrvValue < 1000 ? "Low" : hrvValue > 2000 ? "High" : "Normal",
+          details:
+            hrvValue < 1000
+              ? "Your HRV is low, which might indicate stress or fatigue. Consider taking time to rest and recover."
+              : hrvValue > 2000
+              ? "Your HRV is high, indicating good cardiovascular fitness and stress resilience."
+              : "Your HRV is within a normal range, indicating good balance between stress and recovery.",
+          recommendation:
+            hrvValue < 1000
+              ? "• Prioritize rest and recovery\n• Practice stress management\n• Improve sleep quality\n• Consider reducing training intensity"
+              : hrvValue > 2000
+              ? "• Maintain current lifestyle habits\n• Continue balanced exercise routine\n• Keep up good sleep patterns"
+              : "• Maintain regular exercise\n• Practice stress management\n• Ensure adequate sleep",
         };
       default:
         return null;
@@ -557,8 +594,11 @@ const App: React.FC = () => {
     const analysis = getAnalysis();
     if (!analysis) return null;
 
-    const isComprehensiveAnalysis = selectedMetric === 'stress' && Array.isArray(analysis.details);
-    const metrics = isComprehensiveAnalysis ? analysis.details as MetricAnalysis[] : [];
+    const isComprehensiveAnalysis =
+      selectedMetric === "stress" && Array.isArray(analysis.details);
+    const metrics = isComprehensiveAnalysis
+      ? (analysis.details as MetricAnalysis[])
+      : [];
 
     return (
       <Modal
@@ -571,7 +611,7 @@ const App: React.FC = () => {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{analysis.title}</Text>
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={() => setShowAnalysis(false)}
                 style={styles.closeButton}
               >
@@ -586,16 +626,27 @@ const App: React.FC = () => {
                     <View key={index} style={styles.metricAnalysisContainer}>
                       <View style={styles.metricHeader}>
                         <Text style={styles.metricTitle}>{metric.title}</Text>
-                        <Text style={[styles.metricValue, { color: metric.color }]}>
+                        <Text
+                          style={[styles.metricValue, { color: metric.color }]}
+                        >
                           {metric.value}
                         </Text>
                       </View>
                       <Text style={styles.metricStatus}>
-                        Status: <Text style={{ color: metric.color }}>{metric.status}</Text>
+                        Status:{" "}
+                        <Text style={{ color: metric.color }}>
+                          {metric.status}
+                        </Text>
                       </Text>
-                      <Text style={styles.metricDescription}>{metric.description}</Text>
-                      <Text style={styles.recommendationTitle}>Recommended Activities:</Text>
-                      <Text style={styles.recommendationText}>{metric.recommendations}</Text>
+                      <Text style={styles.metricDescription}>
+                        {metric.description}
+                      </Text>
+                      <Text style={styles.recommendationTitle}>
+                        Recommended Activities:
+                      </Text>
+                      <Text style={styles.recommendationText}>
+                        {metric.recommendations}
+                      </Text>
                       {index < metrics.length - 1 && (
                         <View style={styles.metricSeparator} />
                       )}
@@ -611,10 +662,16 @@ const App: React.FC = () => {
                     </Text>
                   </Text>
                   <Text style={styles.detailsText}>
-                    {typeof analysis.details === 'string' ? analysis.details : ''}
+                    {typeof analysis.details === "string"
+                      ? analysis.details
+                      : ""}
                   </Text>
-                  <Text style={styles.recommendationTitle}>Recommended Activities:</Text>
-                  <Text style={styles.recommendationText}>{analysis.recommendation}</Text>
+                  <Text style={styles.recommendationTitle}>
+                    Recommended Activities:
+                  </Text>
+                  <Text style={styles.recommendationText}>
+                    {analysis.recommendation}
+                  </Text>
                 </View>
               )}
             </ScrollView>
@@ -647,7 +704,9 @@ const App: React.FC = () => {
           <TextInput
             style={styles.ipInput}
             placeholder="Enter ESP32 IP address"
-            onSubmitEditing={(e) => connectToESP32(e.nativeEvent.text)}
+            //onSubmitEditing={(e) => connectToESP32(e.nativeEvent.text)}
+            value={ipAddress}
+            onChangeText={setIpAddress}
             keyboardType="numeric"
             autoCapitalize="none"
             autoCorrect={false}
@@ -656,6 +715,16 @@ const App: React.FC = () => {
           <Text style={styles.ipInstructions}>
             Enter the IP address shown in your ESP32's Serial Monitor
           </Text>
+          <Button
+            title="Connect"
+            onPress={() => {
+              if (ipAddress) {
+                connectToESP32(ipAddress);
+              } else {
+                Alert.alert("Missing IP", "Please enter a valid IP address.");
+              }
+            }}
+          />
         </View>
       </View>
     </Modal>
@@ -667,20 +736,35 @@ const App: React.FC = () => {
       <Text style={styles.historyTitle}>Recent Measurements</Text>
       {history.length === 0 ? (
         <View style={styles.emptyHistoryContainer}>
-          <FontAwesome6 name="history" size={40} color="#ccc" style={styles.emptyHistoryIcon} />
-          <Text style={styles.emptyHistoryText}>No measurements recorded yet</Text>
+          <FontAwesome6
+            name="history"
+            size={40}
+            color="#ccc"
+            style={styles.emptyHistoryIcon}
+          />
+          <Text style={styles.emptyHistoryText}>
+            No measurements recorded yet
+          </Text>
         </View>
       ) : (
         <ScrollView style={styles.historyScrollView}>
-          {history.slice().reverse().map((entry, index) => (
-            <View key={index} style={styles.historyEntry}>
-              <Text style={styles.historyName}>{entry.name}</Text>
-              <Text style={styles.historyTime}>{entry.timestamp}</Text>
-              <Text style={[styles.historyStress, { color: getStressColor(entry.stressLevel) }]}>
-                Stress: {entry.stressLevel}%
-              </Text>
-            </View>
-          ))}
+          {history
+            .slice()
+            .reverse()
+            .map((entry, index) => (
+              <View key={index} style={styles.historyEntry}>
+                <Text style={styles.historyName}>{entry.name}</Text>
+                <Text style={styles.historyTime}>{entry.timestamp}</Text>
+                <Text
+                  style={[
+                    styles.historyStress,
+                    { color: getStressColor(entry.stressLevel) },
+                  ]}
+                >
+                  Stress: {entry.stressLevel}%
+                </Text>
+              </View>
+            ))}
         </ScrollView>
       )}
     </View>
@@ -696,7 +780,7 @@ const App: React.FC = () => {
 
       <View style={styles.buttonContainer}>
         <Button
-          title={isConnected ? "Connected to ESP32" : "Connect to ESP32"}
+          title={isConnected ? "Connected to ESP32" : "Connect to device"}
           onPress={connectToDevice}
         />
         <TouchableOpacity
@@ -709,7 +793,7 @@ const App: React.FC = () => {
 
       <View style={styles.dashboard}>
         <Text style={styles.stressLevel}>Stress Level: {stressLevel}</Text>
-        
+
         <View style={styles.monitoringControls}>
           <TouchableOpacity
             style={[
@@ -732,29 +816,31 @@ const App: React.FC = () => {
         </View>
 
         <View style={styles.metricsContainer}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.mainMetric}
             onPress={() => {
-              setSelectedMetric('stress');
+              setSelectedMetric("stress");
               setShowAnalysis(true);
             }}
           >
-          <AnimatedCircularProgress
-            size={200}
-            width={20}
-            fill={currentStress}
-            tintColor={getStressColor(currentStress)}
-            backgroundColor="#e0e0e0"
-            rotation={0}
-            lineCap="round"
-          >
-            {(fill: number) => (
-              <View style={styles.progressContent}>
-                <Text style={styles.percentText}>{`${Math.round(fill)}%`}</Text>
-                <Text style={styles.stressLabel}>Stress Level</Text>
-              </View>
-            )}
-          </AnimatedCircularProgress>
+            <AnimatedCircularProgress
+              size={200}
+              width={20}
+              fill={currentStress}
+              tintColor={getStressColor(currentStress)}
+              backgroundColor="#e0e0e0"
+              rotation={0}
+              lineCap="round"
+            >
+              {(fill: number) => (
+                <View style={styles.progressContent}>
+                  <Text style={styles.percentText}>{`${Math.round(
+                    fill
+                  )}%`}</Text>
+                  <Text style={styles.stressLabel}>Stress Level</Text>
+                </View>
+              )}
+            </AnimatedCircularProgress>
           </TouchableOpacity>
 
           <View style={styles.sideMetricsContainer}>
@@ -770,17 +856,23 @@ const App: React.FC = () => {
               >
                 {(fill: number) => (
                   <View style={styles.smallProgressContent}>
-                    <Text style={[
-                      styles.smallPercentText,
-                      {
-                        fontSize: bodyTemperature > 37.5 ? 24 :
-                                 bodyTemperature < 36.0 ? 14 : 18,
-                        fontWeight: 'bold',
-                      }
-                    ]}>{`${bodyTemperature.toFixed(1)}°C`}</Text>
-                    <FontAwesome6 
-                      name="temperature-three-quarters" 
-                      size={24} 
+                    <Text
+                      style={[
+                        styles.smallPercentText,
+                        {
+                          fontSize:
+                            bodyTemperature > 37.5
+                              ? 24
+                              : bodyTemperature < 36.0
+                              ? 14
+                              : 18,
+                          fontWeight: "bold",
+                        },
+                      ]}
+                    >{`${bodyTemperature.toFixed(1)}°C`}</Text>
+                    <FontAwesome6
+                      name="temperature-three-quarters"
+                      size={24}
                       color={getTempColor(bodyTemperature)}
                       style={styles.iconStyle}
                     />
@@ -802,11 +894,13 @@ const App: React.FC = () => {
                 {(fill: number) => (
                   <View style={styles.smallProgressContent}>
                     <Text style={styles.smallPercentText}>
-                      {hrvValue === 0 || hrvValue > 2000 ? "Waiting for HRV" : `${hrvValue}ms`}
+                      {hrvValue === 0 || hrvValue > 2000
+                        ? "Waiting for HRV"
+                        : `${hrvValue}ms`}
                     </Text>
-                    <FontAwesome6 
-                      name="heart-pulse" 
-                      size={24} 
+                    <FontAwesome6
+                      name="heart-pulse"
+                      size={24}
                       color={getHrvColor(hrvValue)}
                       style={styles.iconStyle}
                     />
@@ -817,14 +911,15 @@ const App: React.FC = () => {
           </View>
 
           <View style={styles.noteContainer}>
-            <FontAwesome6 
-              name="circle-info" 
-              size={16} 
-              color="#666" 
+            <FontAwesome6
+              name="circle-info"
+              size={16}
+              color="#666"
               style={styles.noteIcon}
             />
             <Text style={styles.noteText}>
-              Note: Please take 10 minutes rest if you have been through an exercise such as walking for accurate measurements.
+              Note: Please take 10 minutes rest if you have been through an
+              exercise such as walking for accurate measurements.
             </Text>
           </View>
         </View>
