@@ -9,6 +9,10 @@
 </p>
 
 <p align="center">
+  <a href="https://stressmonitorapp.netlify.app/"><img src="https://img.shields.io/badge/🚀%20Live%20Demo-stressmonitorapp.netlify.app-00C7B7?style=for-the-badge&logo=netlify&logoColor=white" alt="Live Demo"></a>
+</p>
+
+<p align="center">
   <a href="https://reactnative.dev/"><img src="https://img.shields.io/badge/React%20Native-0.79-61DAFB?style=flat-square&logo=react&logoColor=black" alt="React Native"></a>
   <a href="https://expo.dev/"><img src="https://img.shields.io/badge/Expo-SDK%2053-000020?style=flat-square&logo=expo&logoColor=white" alt="Expo"></a>
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5.3-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript"></a>
@@ -16,6 +20,16 @@
   <a href="#license"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License"></a>
   <a href="https://github.com/Aaqib-Proj/StressMonitorApp"><img src="https://img.shields.io/badge/Platform-Android%20%7C%20iOS%20%7C%20Web-blue?style=flat-square" alt="Platform"></a>
 </p>
+
+---
+
+## 🚀 Live Demo
+
+Experience the full interactive CalmPulse interface directly in your browser:
+👉 **[https://stressmonitorapp.netlify.app/](https://stressmonitorapp.netlify.app/)**
+
+> [!TIP]
+> **Mobile Preview:** For the authentic mobile app feel, press **`F12`** in your browser and toggle the **Device Toolbar** (`Ctrl + Shift + M`) to view it in an iPhone or Pixel frame.
 
 ---
 
@@ -183,7 +197,10 @@ StressMonitorApp/
 ---
 
 ## 🚀 Getting Started
-
+ 
+> [!NOTE]
+> Want to preview the UI without local setup? Visit the live web deployment at **[stressmonitorapp.netlify.app](https://stressmonitorapp.netlify.app/)**.
+ 
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) (version 18+ recommended)
