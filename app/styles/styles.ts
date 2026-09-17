@@ -8,25 +8,58 @@ const styles = StyleSheet.create({
     padding: 20,
     backgroundColor: "#f5f5f5",
   },
+  headerContainer: {
+    width: "100%",
+    marginTop: 20,
+    marginBottom: 20,
+    paddingHorizontal: 20,
+  },
+  headerContent: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  logo: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    overflow: "hidden",
+  },
+  titleContainer: {
+    marginLeft: 15,
+  },
   title: {
-    fontSize: 25,
+    fontSize: 28,
     fontWeight: "bold",
     color: "#333",
-    marginTop: 40,
-    marginBottom: 20,
-    textAlign: "center",
+    marginBottom: 2,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: "#666",
   },
   buttonContainer: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginVertical: 20,
+    justifyContent: "space-around",
+    alignItems: "center",
+    flexWrap: "wrap",
     width: "100%",
-    paddingHorizontal: 20,
+    marginVertical: 10,
+    gap: 10,
+  },
+  historyButtonContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    width: "100%",
+    marginVertical: 10,
+    gap: 10,
   },
   relaxButton: {
     backgroundColor: "#4caf50",
-    borderRadius: 5,
     padding: 10,
+    borderRadius: 5,
+    minWidth: 120,
+    alignItems: "center",
   },
   relaxText: {
     color: "#fff",
@@ -425,6 +458,17 @@ const styles = StyleSheet.create({
   scrollViewContent: {
     padding: 20,
     alignItems: "center",
+  },
+  loadingContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: "#666",
+    textAlign: "center",
   },
 });
 

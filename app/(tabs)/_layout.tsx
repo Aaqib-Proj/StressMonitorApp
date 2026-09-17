@@ -2,6 +2,7 @@ import { Tabs } from "expo-router";
 import React from "react";
 import { Platform, ViewStyle } from "react-native";
 
+import { FontAwesome6 } from "@expo/vector-icons";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { HapticTab } from "@/components/HapticTab";
 import { IconSymbol } from "@/components/ui/IconSymbol";
@@ -15,33 +16,43 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? "light"].tint,
+        tabBarActiveTintColor: "#4caf50",
+        tabBarInactiveTintColor: "#666",
+        tabBarStyle: {
+          backgroundColor: "#f5f5f5",
+          borderTopWidth: 1,
+          borderTopColor: "#e0e0e0",
+          ...Platform.select({
+            ios: {
+              position: "absolute",
+            },
+            default: {},
+          }),
+        },
+        headerStyle: {
+          backgroundColor: "#f5f5f5",
+        },
+        headerTintColor: "#333",
         headerShown: false,
         tabBarButton: HapticTab,
         tabBarBackground: TabBarBackground,
-        tabBarStyle: Platform.select({
-          ios: {
-            position: "absolute"
-          },
-          default: {}
-        }) as ViewStyle
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
           title: "Home",
-          tabBarIcon: ({ color, size }: { color: string; size: number }) => (
+          tabBarIcon: ({ color, size }) => (
             <Ionicons name="home" size={size} color={color} />
           ),
         }}
       />
-     <Tabs.Screen
+      <Tabs.Screen
         name="RelaxationHub"
         options={{
-          title: "Relaxation Hub",
+          title: "Relaxation",
           tabBarIcon: ({ color }) => (
-            <Ionicons name="leaf" size={24} color="white" /> // Relaxation Icon
+            <FontAwesome6 name="spa" size={24} color={color} />
           ),
         }}
       />

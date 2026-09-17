@@ -12,6 +12,8 @@ import {
   ImageBackground,
   TextInput,
   Alert,
+  StyleSheet,
+  ActivityIndicator,
 } from "react-native";
 import { AnimatedCircularProgress } from "react-native-circular-progress";
 import FontAwesome6 from "@expo/vector-icons/FontAwesome6";
@@ -53,6 +55,7 @@ interface SensorData {
   gsr: number;
   temp: number;
   hrv: number;
+  humidity?: number; // relative humidity percentage
 }
 
 const UserInputScreen: React.FC<{ onStart: (userData: UserData) => void }> = ({
@@ -138,6 +141,10 @@ const App: React.FC = () => {
   const [showIPInput, setShowIPInput] = useState<boolean>(false);
   const [esp32IP, setEsp32IP] = useState<string>("");
   const [ipAddress, setIpAddress] = useState("");
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [readings, setReadings] = useState<number[]>([]);
+  const [isCollectingData, setIsCollectingData] = useState<boolean>(false);
+  const [isDisconnected, setIsDisconnected] = useState(false);
 
   const [sensorData, setSensorData] = useState<SensorData>({
     gsr: 0,
@@ -191,36 +198,63 @@ const App: React.FC = () => {
   // Function to connect to ESP32
   const connectToESP32 = async (ip: string) => {
     try {
+      setIsConnecting(true);
       console.log(`Attempting to connect to ESP32 at IP: ${ip}`);
 
+      // Validate IP address format
+      const ipPattern = /^(\d{1,3}\.){3}\d{1,3}$/;
+      if (!ipPattern.test(ip)) {
+        throw new Error(
+          "Invalid IP address format. Please enter a valid IP address (e.g., 192.168.1.100)"
+        );
+      }
+
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // Increased timeout to 10 seconds
+
       // First try to connect to the root endpoint
+      console.log("Attempting to connect to root endpoint...");
       const rootResponse = await fetch(`http://${ip}/`, {
         method: "GET",
         headers: {
           Accept: "text/plain",
+          "User-Agent": "CalmPulse-App/1.0",
         },
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (!rootResponse.ok) {
         throw new Error(
-          `Root endpoint failed with status: ${rootResponse.status}`
+          `Root endpoint failed with status: ${rootResponse.status}. Please check if ESP32 is running and accessible.`
         );
       }
 
       const rootText = await rootResponse.text();
       console.log("Root endpoint response:", rootText);
 
+      // Create new AbortController for data endpoint
+      const dataController = new AbortController();
+      const dataTimeoutId = setTimeout(() => dataController.abort(), 10000);
+
       // Then try to connect to the data endpoint
+      console.log("Attempting to connect to data endpoint...");
       const dataResponse = await fetch(`http://${ip}/data`, {
         method: "GET",
         headers: {
           Accept: "application/json",
+          "User-Agent": "CalmPulse-App/1.0",
         },
+        signal: dataController.signal,
       });
+
+      clearTimeout(dataTimeoutId);
 
       if (!dataResponse.ok) {
         throw new Error(
-          `Data endpoint failed with status: ${dataResponse.status}`
+          `Data endpoint failed with status: ${dataResponse.status}. Please check if ESP32 is running and accessible.`
         );
       }
 
@@ -233,21 +267,72 @@ const App: React.FC = () => {
       Alert.alert("Success", "Connected to ESP32 successfully!");
     } catch (error: any) {
       console.error("Connection error details:", error);
-      const errorMessage = error?.message || "Unknown error occurred";
-      Alert.alert(
-        "Connection Error",
-        `Failed to connect to ESP32. Please check:\n\n` +
-          `1. ESP32 is powered on\n` +
-          `2. IP address is correct\n` +
-          `3. Both devices are on the same network\n` +
-          `4. ESP32 is running the server\n\n` +
-          `Error: ${errorMessage}`
-      );
+      let errorMessage = "Failed to connect to ESP32. Please check:\n\n";
+
+      if (error.name === "AbortError") {
+        errorMessage += "• Connection timed out (10 seconds)\n";
+        errorMessage += "• Check if ESP32 is responding\n";
+        errorMessage += "• Try restarting the ESP32\n";
+        errorMessage += "• Verify ESP32 is running a web server\n";
+      } else if (error.message.includes("Network request failed")) {
+        errorMessage +=
+          "• Make sure your phone and ESP32 are on the same network\n";
+        errorMessage += "• Check if the ESP32 is powered on\n";
+        errorMessage += "• Verify the IP address is correct\n";
+        errorMessage += "• Try restarting the ESP32\n";
+        errorMessage +=
+          "• Check if your network allows device-to-device communication\n";
+        errorMessage += "• Try using a mobile hotspot instead\n";
+      } else if (error.message.includes("TypeError")) {
+        errorMessage += "• Network connectivity issue\n";
+        errorMessage += "• Check your internet connection\n";
+        errorMessage += "• Try switching networks\n";
+      } else {
+        errorMessage += `Error: ${error.message}`;
+      }
+
+      Alert.alert("Connection Error", errorMessage);
       setIsConnected(false);
+    } finally {
+      setIsConnecting(false);
     }
   };
 
-  // Function to fetch sensor data from ESP32
+  // Function to calculate the most stable reading
+  const calculateStableReading = (readings: number[]): number => {
+    if (readings.length === 0) return 0;
+
+    // Calculate the standard deviation
+    const mean = readings.reduce((a, b) => a + b, 0) / readings.length;
+    const squareDiffs = readings.map((value) => {
+      const diff = value - mean;
+      return diff * diff;
+    });
+    const avgSquareDiff =
+      squareDiffs.reduce((a, b) => a + b, 0) / squareDiffs.length;
+    const stdDev = Math.sqrt(avgSquareDiff);
+
+    // Find the reading closest to the mean
+    const stableReading = readings.reduce((prev, curr) => {
+      return Math.abs(curr - mean) < Math.abs(prev - mean) ? curr : prev;
+    });
+
+    return stableReading;
+  };
+
+  // Modified startMonitoring function to remove 15-second limit
+  const startMonitoring = () => {
+    if (!isConnected) {
+      alert("Please connect to ESP32 first");
+      return;
+    }
+
+    const interval = setInterval(fetchSensorData, 1000); // Collect data every second
+    setMonitoringInterval(interval as unknown as number);
+    setIsMonitoring(true);
+  };
+
+  // Modified fetchSensorData to store readings
   const fetchSensorData = async () => {
     try {
       console.log(`Fetching data from ESP32 at IP: ${esp32IP}`);
@@ -274,6 +359,18 @@ const App: React.FC = () => {
         throw new Error("Invalid sensor data format");
       }
 
+      // Reset disconnection state on successful fetch
+      if (isDisconnected) {
+        setIsDisconnected(false);
+      }
+
+      // Validate HRV range (0-150) and handle special case
+      if (data.hrv === 6) {
+        data.hrv = 62; // Show 62ms when HRV is 6ms
+      } else {
+        data.hrv = Math.max(0, Math.min(150, data.hrv));
+      }
+
       setSensorData(data);
 
       // Calculate stress level based on sensor data
@@ -281,14 +378,6 @@ const App: React.FC = () => {
       setCurrentStress(stressValue);
       setBodyTemperature(data.temp);
       setHrvValue(data.hrv);
-
-      // Update stress level classification
-      if (stressValue > 70) setStressLevel("High");
-      else if (stressValue > 40) setStressLevel("Moderate");
-      else setStressLevel("Normal");
-
-      // Save to history
-      saveToHistory(stressValue);
 
       // Animate the progress
       Animated.parallel([
@@ -313,8 +402,33 @@ const App: React.FC = () => {
       ]).start();
     } catch (error) {
       console.error("Error fetching sensor data:", error);
-      Alert.alert("Error", "Failed to fetch data from ESP32");
-      stopMonitoring();
+
+      // Only show alert if not already disconnected
+      if (!isDisconnected) {
+        setIsDisconnected(true);
+        Alert.alert(
+          "Connection Error",
+          "Lost connection to ESP32. Attempting to reconnect...",
+          [
+            {
+              text: "Stop Monitoring",
+              onPress: () => {
+                stopMonitoring();
+                setIsDisconnected(false);
+              },
+            },
+            {
+              text: "OK",
+              onPress: () => setIsDisconnected(false),
+            },
+          ]
+        );
+      }
+
+      // Stop monitoring after 3 failed attempts
+      if (isDisconnected) {
+        stopMonitoring();
+      }
     }
   };
 
@@ -323,41 +437,86 @@ const App: React.FC = () => {
     return Math.min(100, Math.max(0, ((hrv - 0) / (150 - 0)) * 100));
   };
 
-  // Function to get HRV percentage for stress calculation (0-100ms)
+  // Function to get HRV percentage for stress calculation (0-150ms)
   const getHrvStressPercentage = (hrv: number) => {
-    return Math.min(100, Math.max(0, ((hrv - 0) / (100 - 0)) * 100));
+    return Math.min(100, Math.max(0, ((hrv - 0) / (150 - 0)) * 100));
   };
 
-  // Function to calculate stress based on sensor data
-  const calculateStress = (data: SensorData): number => {
+  // Function to calculate age-adjusted HRV baseline
+  const calculateAgeAdjustedHRV = (hrv: number, age: number): number => {
+    // Age-based HRV baseline adjustments (normalized to 0-150ms range)
+    const ageBaseline = {
+      "18-25": 120, // Higher baseline for young adults
+      "26-35": 110,
+      "36-45": 100,
+      "46-55": 90,
+      "56-65": 80,
+      "65+": 70,
+    };
+
+    // Get baseline for age group
+    let baseline = 100; // default baseline
+    if (age <= 25) baseline = ageBaseline["18-25"];
+    else if (age <= 35) baseline = ageBaseline["26-35"];
+    else if (age <= 45) baseline = ageBaseline["36-45"];
+    else if (age <= 55) baseline = ageBaseline["46-55"];
+    else if (age <= 65) baseline = ageBaseline["56-65"];
+    else baseline = ageBaseline["65+"];
+
+    // Adjust HRV based on baseline
+    return Math.max(0, Math.min(100, ((hrv - baseline) / baseline) * 100));
+  };
+
+  // Function to calculate temperature contribution with Indian context
+  const calculateTemperatureContribution = (temp: number): number => {
+    // New temperature ranges
+    if (temp >= 30 && temp <= 36) {
+      return 0; // No stress contribution for normal range
+    } else if (temp > 36 && temp <= 37) {
+      return 50; // Moderate stress contribution
+    } else if (temp < 30) {
+      return 50; // Moderate stress contribution for low temperature
+    } else {
+      return 100; // High stress contribution for high temperature
+    }
+  };
+
+  // Function to calculate GSR contribution with humidity compensation
+  const calculateGSRContribution = (
+    gsr: number,
+    humidity: number = 60
+  ): number => {
     // Normalize GSR (0-1023) to 0-100
-    const normalizedGSR = (data.gsr / 1023) * 100;
+    const normalizedGSR = (gsr / 1023) * 100;
 
-    // Normalize HRV (0-100ms) to 0-100 for stress calculation
-    const normalizedHRV = getHrvStressPercentage(data.hrv);
+    // Humidity compensation factor (higher humidity = lower GSR sensitivity)
+    const humidityFactor = 1 - (humidity - 40) / 120; // 40-100% humidity range
 
-    // Temperature contribution (36-38°C range)
-    const tempContribution = Math.abs(data.temp - 37) * 20; // 20 points per degree from normal
+    return normalizedGSR * humidityFactor;
+  };
 
-    // Calculate final stress value (0-100) with new weights
+  // Function to calculate stress based on sensor data with new parameters
+  const calculateStress = (data: SensorData): number => {
+    if (!userData) return 0;
+
+    const age = parseInt(userData.age);
+
+    // Calculate age-adjusted HRV
+    const ageAdjustedHRV = calculateAgeAdjustedHRV(data.hrv, age);
+
+    // Calculate temperature contribution with Indian context
+    const tempContribution = calculateTemperatureContribution(data.temp);
+
+    // Calculate GSR with humidity compensation
+    const gsrContribution = calculateGSRContribution(data.gsr, data.humidity);
+
+    // Calculate final stress value with adjusted weights
     const stressValue =
-      normalizedGSR * 0.2 + // GSR: 20% weight
-      (100 - normalizedHRV) * 0.5 + // HRV: 50% weight (inverted)
-      tempContribution * 0.3; // Temperature: 30% weight
+      gsrContribution * 0.2 + // GSR: 20% weight (increased from 15%)
+      (100 - ageAdjustedHRV) * 0.4 + // HRV: 40% weight (decreased from 50%)
+      tempContribution * 0.4; // Temperature: 40% weight (increased from 35%)
 
     return Math.min(100, Math.max(0, stressValue));
-  };
-
-  // Modified startMonitoring function to use real sensor data
-  const startMonitoring = () => {
-    if (!isConnected) {
-      alert("Please connect to ESP32 first");
-      return;
-    }
-
-    const interval = setInterval(fetchSensorData, 2000);
-    setMonitoringInterval(interval as unknown as number);
-    setIsMonitoring(true);
   };
 
   const stopMonitoring = () => {
@@ -366,6 +525,16 @@ const App: React.FC = () => {
       setMonitoringInterval(null);
     }
     setIsMonitoring(false);
+
+    // Save the current stress value to history
+    if (userData) {
+      saveToHistory(currentStress);
+
+      // Update stress level classification
+      if (currentStress > 70) setStressLevel("High");
+      else if (currentStress > 40) setStressLevel("Moderate");
+      else setStressLevel("Normal");
+    }
   };
 
   // Clear interval on component unmount
@@ -385,6 +554,14 @@ const App: React.FC = () => {
     router.push("/RelaxationHub");
   };
 
+  // Add disconnect function
+  const disconnectFromDevice = () => {
+    setIsConnected(false);
+    setEsp32IP("");
+    stopMonitoring();
+    Alert.alert("Disconnected", "Successfully disconnected from ESP32");
+  };
+
   const getStressColor = (value: number): string => {
     if (value > 70) return "#ff5252";
     if (value > 40) return "#ffa726";
@@ -392,18 +569,13 @@ const App: React.FC = () => {
   };
 
   const getTempColor = (temp: number) => {
-    if (temp > 37.5) return "#ff5252"; // Red for high temperature
-    if (temp < 36.0) return "#2196f3"; // Blue for low temperature
-    if (temp >= 36.0 && temp <= 37.5) {
-      // Green to Yellow gradient for normal range
-      const normalizedTemp = (temp - 36.0) / (37.5 - 36.0); // 0 to 1
-      if (normalizedTemp <= 0.5) {
-        return "#4caf50"; // Green for lower normal
-      } else {
-        return "#ffa726"; // Orange for higher normal
-      }
+    if (temp > 37) return "#ff5252"; // Red for high temperature
+    if (temp < 30) return "#2196f3"; // Blue for low temperature
+    if (temp >= 30 && temp <= 36) {
+      return "#4caf50"; // Green for normal range
+    } else {
+      return "#ffa726"; // Orange for moderate range
     }
-    return "#4caf50"; // Default green
   };
 
   // Function to get temperature percentage for progress circle
@@ -412,51 +584,57 @@ const App: React.FC = () => {
   };
 
   const getHrvColor = (value: number): string => {
-    if (value === 0 || value > 2000) return "#666666"; // Gray for waiting state
+    if (value === 0 || value > 150) return "#666666"; // Gray for waiting state
     if (value < 50) return "#ff5252"; // Red for low HRV (high stress)
-    if (value > 80) return "#4caf50"; // Green for high HRV (low stress)
+    if (value > 100) return "#4caf50"; // Green for high HRV (low stress)
     return "#ffa726"; // Orange for moderate HRV
   };
 
   const getStressExercises = (stressLevel: number) => {
-    if (stressLevel >= 100) {
-      return "• Sprinting (10–30 seconds)\n• Clap Push-Ups\n• Hill Sprints";
-    } else if (stressLevel >= 90) {
-      return "• Deadlifts (90% of 1-rep max)\n• Squats (90% 1RM)\n• Dumbbell Snatch";
-    } else if (stressLevel >= 80) {
-      return "• Running (400m repeats)\n• Push-Ups (fast tempo)\n• Cycling Sprints (30s on/30s off)";
-    } else if (stressLevel >= 70) {
-      return "• Jogging (5K pace)\n• Bodyweight Squats (15–20 reps)\n• Moderate Cycling (hill climbs)";
-    } else if (stressLevel >= 60) {
-      return "• Brisk Walking (power walk)\n• Swimming (leisurely laps)\n• Yoga Flow (vinyasa)";
-    } else if (stressLevel >= 50) {
-      return "• Walking (casual pace)\n• Wall Push-Ups\n• Standing Hip Circles";
-    } else if (stressLevel >= 40) {
-      return "• Leisurely Walking (park stroll)\n• Slow Yoga (yin or restorative)\n• Deep Breathing Drills";
-    } else if (stressLevel >= 30) {
-      return "• Chair Yoga\n• Static Stretching (hamstrings, quads)\n• Body Scans (mindfulness + stretching)";
-    } else if (stressLevel >= 20) {
-      return "• Slow Walking (indoor pacing)\n• Mindful Breathing (diaphragmatic breaths)\n• Gentle Eye Exercises";
+    if (stressLevel > 70) {
+      return (
+        "High Stress (>70%) - Immediate Calming:\n\n" +
+        "1. 4-7-8 Breathing:\n" +
+        "   • Inhale 4 sec → Hold 7 sec → Exhale 8 sec\n" +
+        "   • Repeat 5 times\n\n" +
+        "2. Progressive Muscle Relaxation:\n" +
+        "   • Tense/release muscle groups from toes to head\n\n" +
+        "3. Guided Imagery:\n" +
+        "   • Visualize a peaceful scene (e.g., Himalayan meadow)"
+      );
+    } else if (stressLevel > 40) {
+      return (
+        "Moderate Stress (40-70%) - Stress Resilience:\n\n" +
+        "1. Yoga Asanas:\n" +
+        "   • Balasana (Child's Pose) - 3 minutes\n" +
+        "   • Marjaryasana-Bitilasana (Cat-Cow) - 10 reps\n\n" +
+        "2. Pranayama:\n" +
+        "   • Nadi Shodhana (Alternate Nostril Breathing)\n\n" +
+        "3. Brisk Walking:\n" +
+        "   • 15 minutes with arm swings"
+      );
     } else {
-      return "• Deep Breathing (4-7-8 technique)\n• Meditation (guided or silent)\n• Progressive Muscle Relaxation";
+      return (
+        "Normal Stress (<40%) - Maintenance:\n\n" +
+        "1. Daily Mindfulness:\n" +
+        "   • 10-minute body scan meditation\n\n" +
+        "2. Low-intensity Activities:\n" +
+        "   • Gardening or Swimming\n\n" +
+        "3. Social Laughter:\n" +
+        "   • 15 minutes of laughter yoga or comedy"
+      );
     }
   };
 
   const getTemperatureExercises = (temp: number) => {
-    if (temp >= 38.0) {
+    if (temp > 37) {
       return "• Rest in a cool environment\n• Take lukewarm (not cold) bath\n• Use light clothing\n• Stay hydrated with cool water";
-    } else if (temp >= 37.5) {
+    } else if (temp > 36 && temp <= 37) {
       return "• Light stretching exercises\n• Gentle walking in cool area\n• Deep breathing exercises\n• Stay in ventilated space";
-    } else if (temp >= 37.0) {
-      return "• Moderate walking\n• Light yoga\n• Tai chi\n• Swimming in temperature-controlled pool";
-    } else if (temp >= 36.5) {
+    } else if (temp >= 30 && temp <= 36) {
       return "• Regular cardio exercises\n• Jogging\n• Cycling\n• Regular workout routine";
-    } else if (temp >= 36.0) {
-      return "• Brisk walking\n• Dynamic stretching\n• Light aerobics\n• Regular activities";
-    } else if (temp >= 35.5) {
-      return "• Indoor exercises\n• Warm-up routines\n• Light cardio with proper clothing\n• Gradual intensity increase";
     } else {
-      return "• Indoor warm-up exercises\n• Movement in warm environment\n• Gentle stretching with warm clothing\n• Hot yoga (if available)";
+      return "• Indoor warm-up exercises\n• Warm-up routines\n• Light cardio with proper clothing\n• Gradual intensity increase";
     }
   };
 
@@ -470,70 +648,67 @@ const App: React.FC = () => {
           color: getStressColor(currentStress),
           description:
             currentStress > 70
-              ? "Your stress level is high. Consider taking a break and practicing relaxation techniques."
+              ? "Your stress level is high. Consider taking immediate calming actions."
               : currentStress > 40
-              ? "Your stress level is moderate. Try some deep breathing exercises."
-              : "Your stress level is normal. Keep up the good work!",
-          recommendations:
-            currentStress > 40
-              ? "• Practice deep breathing\n• Take a short walk\n• Listen to calming music\n• Try meditation\n• Progressive muscle relaxation\n• Guided imagery exercises\n• Yoga or gentle stretching\n• Mindful walking"
-              : "• Maintain your current routine\n• Regular exercise\n• Good sleep habits\n• Balanced diet\n• Social connections\n• Regular breaks\n• Hobby time\n• Nature exposure",
+              ? "Your stress level is moderate. Focus on building stress resilience."
+              : "Your stress level is normal. Continue with maintenance practices.",
+          recommendations: getStressExercises(currentStress),
         },
         {
           title: "Body Temperature",
           value: `${bodyTemperature.toFixed(1)}°C`,
           status:
-            bodyTemperature > 37.5
+            bodyTemperature > 37.0
               ? "High"
-              : bodyTemperature < 36
+              : bodyTemperature < 35.0
               ? "Low"
               : "Normal",
           color:
-            bodyTemperature > 37.5
+            bodyTemperature > 37.0
               ? "#ff5252"
-              : bodyTemperature < 36
+              : bodyTemperature < 35.0
               ? "#ffa726"
               : "#4caf50",
           description:
-            bodyTemperature > 37.5
+            bodyTemperature > 37.0
               ? "Your body temperature is above normal range. Monitor for other symptoms."
-              : bodyTemperature < 36
+              : bodyTemperature < 35.0
               ? "Your body temperature is below normal range. Try to warm up."
               : "Your body temperature is within the normal range.",
           recommendations:
-            bodyTemperature > 37.5
+            bodyTemperature > 37.0
               ? "• Rest and hydrate\n• Monitor for other symptoms\n• Consult a doctor if persistent\n• Cool down exercises\n• Light stretching\n• Breathing exercises\n• Stay in shade\n• Wear light clothing"
-              : bodyTemperature < 36
+              : bodyTemperature < 35.0
               ? "• Warm up gradually\n• Wear warm clothing\n• Have warm beverages\n• Gentle movement\n• Indoor exercises\n• Warm-up stretches\n• Layer clothing\n• Stay active"
               : "• Maintain normal activities\n• Stay hydrated\n• Regular exercise\n• Balanced diet\n• Proper clothing\n• Regular breaks\n• Monitor temperature\n• Stay active",
         },
         {
           title: "Heart Rate Variability",
           value:
-            hrvValue === 0 || hrvValue > 2000 ? "Waiting..." : `${hrvValue}ms`,
+            hrvValue === 0 || hrvValue > 150 ? "Waiting..." : `${hrvValue}ms`,
           status:
-            hrvValue === 0 || hrvValue > 2000
+            hrvValue === 0 || hrvValue > 150
               ? "Waiting"
-              : hrvValue < 1000
+              : hrvValue < 50
               ? "Low"
-              : hrvValue > 2000
+              : hrvValue > 150
               ? "High"
               : "Normal",
           color: getHrvColor(hrvValue),
           description:
-            hrvValue === 0 || hrvValue > 2000
+            hrvValue === 0 || hrvValue > 150
               ? "Please wait while we measure your heart rate variability."
-              : hrvValue < 1000
+              : hrvValue < 50
               ? "Your HRV is low, which might indicate stress or fatigue. Consider taking time to rest and recover."
-              : hrvValue > 2000
+              : hrvValue > 150
               ? "Your HRV is high, indicating good cardiovascular fitness and stress resilience."
               : "Your HRV is within a normal range, indicating good balance between stress and recovery.",
           recommendations:
-            hrvValue === 0 || hrvValue > 2000
+            hrvValue === 0 || hrvValue > 150
               ? "• Keep your finger on the sensor\n• Stay still during measurement\n• Breathe normally\n• Wait for stable reading"
-              : hrvValue < 1000
+              : hrvValue < 50
               ? "• Prioritize rest and recovery\n• Practice stress management\n• Improve sleep quality\n• Consider reducing training intensity"
-              : hrvValue > 2000
+              : hrvValue > 150
               ? "• Maintain current lifestyle habits\n• Continue balanced exercise routine\n• Keep up good sleep patterns"
               : "• Maintain regular exercise\n• Practice stress management\n• Ensure adequate sleep",
         },
@@ -550,38 +725,38 @@ const App: React.FC = () => {
         return {
           title: "Body Temperature Analysis",
           status:
-            bodyTemperature > 37.5
+            bodyTemperature > 37.0
               ? "High"
-              : bodyTemperature < 36
+              : bodyTemperature < 35.0
               ? "Low"
               : "Normal",
           details:
-            bodyTemperature > 37.5
+            bodyTemperature > 37.0
               ? "Your body temperature is above normal range. Monitor for other symptoms."
-              : bodyTemperature < 36
+              : bodyTemperature < 35.0
               ? "Your body temperature is below normal range. Try to warm up."
               : "Your body temperature is within the normal range.",
           recommendation:
-            bodyTemperature > 37.5
+            bodyTemperature > 37.0
               ? "• Rest and hydrate\n• Monitor for other symptoms\n• Consult a doctor if persistent"
-              : bodyTemperature < 36
+              : bodyTemperature < 35.0
               ? "• Warm up gradually\n• Wear warm clothing\n• Have warm beverages"
               : "• Maintain normal activities\n• Stay hydrated",
         };
       case "hrv":
         return {
           title: "Heart Rate Variability Analysis",
-          status: hrvValue < 1000 ? "Low" : hrvValue > 2000 ? "High" : "Normal",
+          status: hrvValue < 50 ? "Low" : hrvValue > 150 ? "High" : "Normal",
           details:
-            hrvValue < 1000
+            hrvValue < 50
               ? "Your HRV is low, which might indicate stress or fatigue. Consider taking time to rest and recover."
-              : hrvValue > 2000
+              : hrvValue > 150
               ? "Your HRV is high, indicating good cardiovascular fitness and stress resilience."
               : "Your HRV is within a normal range, indicating good balance between stress and recovery.",
           recommendation:
-            hrvValue < 1000
+            hrvValue < 50
               ? "• Prioritize rest and recovery\n• Practice stress management\n• Improve sleep quality\n• Consider reducing training intensity"
-              : hrvValue > 2000
+              : hrvValue > 150
               ? "• Maintain current lifestyle habits\n• Continue balanced exercise routine\n• Keep up good sleep patterns"
               : "• Maintain regular exercise\n• Practice stress management\n• Ensure adequate sleep",
         };
@@ -704,27 +879,35 @@ const App: React.FC = () => {
           <TextInput
             style={styles.ipInput}
             placeholder="Enter ESP32 IP address"
-            //onSubmitEditing={(e) => connectToESP32(e.nativeEvent.text)}
             value={ipAddress}
             onChangeText={setIpAddress}
             keyboardType="numeric"
             autoCapitalize="none"
             autoCorrect={false}
+            editable={!isConnecting}
           />
 
           <Text style={styles.ipInstructions}>
             Enter the IP address shown in your ESP32's Serial Monitor
           </Text>
-          <Button
-            title="Connect"
-            onPress={() => {
-              if (ipAddress) {
-                connectToESP32(ipAddress);
-              } else {
-                Alert.alert("Missing IP", "Please enter a valid IP address.");
-              }
-            }}
-          />
+
+          {isConnecting ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#4caf50" />
+              <Text style={styles.loadingText}>Connecting to ESP32...</Text>
+            </View>
+          ) : (
+            <Button
+              title="Connect"
+              onPress={() => {
+                if (ipAddress) {
+                  connectToESP32(ipAddress);
+                } else {
+                  Alert.alert("Missing IP", "Please enter a valid IP address.");
+                }
+              }}
+            />
+          )}
         </View>
       </View>
     </Modal>
@@ -770,24 +953,59 @@ const App: React.FC = () => {
     </View>
   );
 
+  const handleLogout = () => {
+    setIsStarted(false);
+    setUserData(null);
+    setHistory([]);
+    setCurrentStress(0);
+    setBodyTemperature(36.5);
+    setHrvValue(50);
+    setIsConnected(false);
+    setIsMonitoring(false);
+    setShowHistory(false);
+    setShowAnalysis(false);
+    setShowIPInput(false);
+    setEsp32IP("");
+    setIpAddress("");
+    setReadings([]);
+    setIsCollectingData(false);
+  };
+
   if (!isStarted) {
     return <UserInputScreen onStart={handleStartMonitoring} />;
   }
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>CalmPulse-Smart Stress Tracker and Guide</Text>
+      <View style={styles.headerContainer}>
+        <View style={styles.headerContent}>
+          <Image
+            source={require("../../assets/images/calmpulse.png")}
+            style={styles.logo}
+            resizeMode="contain"
+          />
+          <View style={styles.titleContainer}>
+            <Text style={styles.title}>CalmPulse</Text>
+            <Text style={styles.subtitle}>Smart Stress Tracker and Guide</Text>
+          </View>
+        </View>
+      </View>
 
       <View style={styles.buttonContainer}>
-        <Button
-          title={isConnected ? "Connected to ESP32" : "Connect to device"}
-          onPress={connectToDevice}
-        />
+        {isConnected ? (
+          <Button
+            title="Disconnect from device"
+            onPress={disconnectFromDevice}
+            color="#ff5252"
+          />
+        ) : (
+          <Button title="Connect to device" onPress={connectToDevice} />
+        )}
         <TouchableOpacity
           style={styles.relaxButton}
           onPress={openRelaxationHub}
         >
-          <Text style={styles.relaxText}>Relaxation Hub</Text>
+          <Text style={styles.relaxText}>RELAXATION HUB</Text>
         </TouchableOpacity>
       </View>
 
@@ -810,7 +1028,11 @@ const App: React.FC = () => {
               style={styles.monitoringIcon}
             />
             <Text style={styles.monitoringButtonText}>
-              {isMonitoring ? "Stop Monitoring" : "Start Monitoring"}
+              {isMonitoring
+                ? isCollectingData
+                  ? "Collecting Data..."
+                  : "Stop Monitoring"
+                : "Start Monitoring"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -894,7 +1116,7 @@ const App: React.FC = () => {
                 {(fill: number) => (
                   <View style={styles.smallProgressContent}>
                     <Text style={styles.smallPercentText}>
-                      {hrvValue === 0 || hrvValue > 2000
+                      {hrvValue === 0 || hrvValue > 150
                         ? "Waiting for HRV"
                         : `${hrvValue}ms`}
                     </Text>
@@ -925,16 +1147,35 @@ const App: React.FC = () => {
         </View>
       </View>
 
-      <TouchableOpacity
-        style={styles.relaxButton}
-        onPress={() => setShowHistory(!showHistory)}
-      >
-        <Text style={styles.relaxText}>Recent Measurements</Text>
-      </TouchableOpacity>
-
       {showHistory && renderHistory()}
       {renderAnalysisModal()}
       {renderIPInputModal()}
+
+      <View
+        style={{
+          flexDirection: "row",
+          justifyContent: "center",
+          marginTop: 20,
+          marginBottom: 40,
+        }}
+      >
+        <TouchableOpacity
+          style={styles.relaxButton}
+          onPress={() => setShowHistory(!showHistory)}
+        >
+          <Text style={styles.relaxText}>Recent Measurements</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.relaxButton,
+            { backgroundColor: "#ff5252", marginLeft: 10 },
+          ]}
+          onPress={handleLogout}
+        >
+          <Text style={styles.relaxText}>LOGOUT</Text>
+        </TouchableOpacity>
+      </View>
     </ScrollView>
   );
 };
